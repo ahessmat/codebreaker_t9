@@ -2,6 +2,19 @@ import time
 import multiprocessing as mp
 from Crypto.Cipher import AES
 from binascii import unhexlify
+from functools import partial
+from unransom import solve
+
+#Define some pretty colors for output text
+IBlack="\033[0;90m"       # Black
+IRed="\033[0;91m"         # Red
+IGreen="\033[0;92m"       # Green
+IYellow="\033[0;93m"      # Yellow
+IBlue="\033[0;94m"        # Blue
+IPurple="\033[0;95m"      # Purple
+ICyan="\033[0;96m"        # Cyan
+IWhite="\033[0;97m"       # White
+
 
 #Helper method
 #Used to convert an integer to a hex digit in string format
@@ -13,13 +26,13 @@ def getval(strval):
 		print(f"[-] ERROR: could not process value {strval}")
 	return x
 
-#These are the encrypted bytes
+#These are the encrypted bytes of the target ransomware file
 hexdata = b''
 with open("id.pdf.enc","rb") as f:
   hexdata = f.read()
 
 #This is the function that each core will run to decrypt id.pdf.enc
-def runme(lst):
+def runme(event,lst):
 	#Break up each digit
 	start,q,w,e,r,t,y,u,v = lst
 	#Create a thread ID to track the work of each running process
@@ -66,13 +79,21 @@ def runme(lst):
 
 										# Check if decrypted output is what we're looking for
 										if b'%PDF' in decipher[:5]:
-												print("[+] FOUND IT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+												print(IGreen + "[+] FOUND IT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 												et = time.time()
 												elapsed_time = et - st
 												print('Execution time:', elapsed_time, 'seconds')
 												print(f"TID:{tid} KEY:{raw_key} PRE-KEY:{test}")
-										continue
-					print(f'{tid}: {raw_key}')
+												event.set()
+												print(IBlue + "[*] Writing decrypted file")
+												solve(test)
+												return
+										
+					if event.is_set():
+						return
+					else:
+						print(IRed + f'{tid}: {raw_key}')
+						continue
 	print(f'[-] {tid} FINISHED without finding result')
 
 
@@ -89,13 +110,26 @@ def breakup(a):
 		y[i] = (int(e,base=16))
 	return y
 
+# 406ec0d90 <-- Already solved it, so you can plug this value in instead for expediency
+print(IBlue + "[*] Running!")
+print(IBlue + "[*] Decryption key is in the form ********-aaa1-11ec-beec-000c294a")
 listofvals = [ breakup("000000000"),
 		breakup("400000000"),
 		breakup("800000000"),
 		breakup("c00000000")]
-num_workers = mp.cpu_count()
+
 pool = mp.Pool(4)
-pool.map(runme,listofvals)
+
+#I needed an event manager to capture when one of the child processes successfully found a key
+#This required passing an event from mp.manager.event()
+#I had to subsequently alter the code so that mp.map() could accept multiple arguments
+with mp.Manager() as manager:
+	event = manager.Event()
+	func = partial(runme,event)
+	pool.map(func,listofvals)
+	print(IYellow + "[-] Result found, terminating...")
+pool.close()
+pool.join()
 
 											
 et = time.time()
